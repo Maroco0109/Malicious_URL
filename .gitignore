@@ -1,0 +1,8 @@
+# API key
+api_key.txt
+
+# Benign URL list
+data/
+
+# URL 검사 결과
+json/
