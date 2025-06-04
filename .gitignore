@@ -6,3 +6,6 @@ data/
 
 # URL 검사 결과
 json/
+
+# pycache
+__pycache__/
