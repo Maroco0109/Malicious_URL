@@ -1,11 +1,20 @@
 # API key
 api_key.txt
 
+# env file
+.env
+
 # Benign URL list
 data/
 
 # URL 검사 결과
-json/
+url_examine/*.json
 
 # pycache
 __pycache__/
+
+# chrome driver
+chromedriver.exe
+
+# Agent
+CLAUDE.md
