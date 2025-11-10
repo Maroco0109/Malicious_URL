@@ -25,6 +25,37 @@ from step3.dynamic_check import check_dynamic_threat
 from utils.security import validate_safe_path, sanitize_filename, PathTraversalError
 
 
+def extract_domain_for_filename(url):
+    """
+    URL에서 파일명으로 사용할 도메인 부분을 추출합니다.
+    전체 호스트명을 사용하여 충돌을 방지하고, 타임스탬프를 추가합니다.
+
+    예:
+        http://www.824555.com/path -> 824555_com_20250110_123456
+        https://docs.google.com -> docs_google_com_20250110_123456
+        https://google.com -> google_com_20250110_123456
+    """
+    from datetime import datetime
+
+    parsed = urlparse(url)
+    hostname = parsed.hostname or url
+
+    # www. 제거 (선택적)
+    if hostname.startswith('www.'):
+        hostname = hostname[4:]
+
+    # 점을 언더스코어로 변경 (파일명 안전성)
+    safe_hostname = hostname.replace('.', '_')
+
+    # 타임스탬프 추가 (같은 도메인을 여러 번 분석할 때 충돌 방지)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # 최종 파일명: {도메인}_{타임스탬프}
+    filename_base = f"{safe_hostname}_{timestamp}"
+
+    return filename_base
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Step1~Step3 통합 도구 (결과를 JSON으로 저장 가능)"
@@ -50,7 +81,7 @@ def parse_args():
     parser.add_argument("--dynamic", action="store_true", help="동적(헤드리스 브라우저) 분석 실행")
 
     # 결과를 JSON으로 저장할 경로
-    parser.add_argument("--export-json", help="모든 단계 결과를 JSON 파일로 저장할 경로 (예: result.json)")
+    parser.add_argument("--export-json", action="store_true", help="모든 단계 결과를 JSON 파일로 저장 (도메인 기반 자동 생성)")
 
     return parser.parse_args()
 
@@ -175,11 +206,18 @@ def main():
     # 7) --export-json 옵션이 있으면 JSON으로 저장
     if args.export_json:
         try:
+            # URL에서 도메인 추출하여 파일명 생성
+            domain_name = extract_domain_for_filename(url)
+            filename = f"{domain_name}_results.json"
+
             # 파일명 보안 검증
-            filename = sanitize_filename(args.export_json)
+            filename = sanitize_filename(filename)
+
+            # base_dir와 파일명을 결합한 전체 경로 생성
+            full_path = os.path.join("url_examine", filename)
 
             # 경로 검증 (path traversal 방지)
-            output_path = validate_safe_path(filename, base_dir="url_examine")
+            output_path = validate_safe_path(full_path, base_dir="url_examine")
 
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(all_results, f, ensure_ascii=False, indent=2)

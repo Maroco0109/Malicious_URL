@@ -6,6 +6,7 @@ from selenium.webdriver.chrome.options import Options
 from urllib.parse import urlparse
 import time
 import sys
+import os
 from shutil import which
 
 # Security 모듈 임포트
@@ -87,22 +88,34 @@ def check_dynamic_threat(url: str, wait_time: float = 5.0, allow_private_ips: bo
     chrome_options.add_argument("--disable-notifications")
     chrome_options.add_argument("--disable-geolocation")
 
-    # ── Chromium 바이너리 경로 지정 ──
-    chromium_path = which("chromium-browser")
-    if not chromium_path:
-        result["comment"] = (
-            "Chromium 브라우저를 찾을 수 없습니다. "
-            "APT로 설치된 chromium-browser가 있어야 합니다."
-        )
-        return result
-    chrome_options.binary_location = chromium_path
+    # ── Chromium/Chrome 바이너리 경로 지정 ──
+    # Linux에서는 chromium-browser, Windows에서는 Chrome을 자동으로 찾음
+    chromium_path = which("chromium-browser") or which("chrome") or which("google-chrome")
+    if chromium_path:
+        chrome_options.binary_location = chromium_path
+    # Windows에서는 Chrome이 기본 설치되어 있으면 binary_location을 지정하지 않아도 됨
 
-    # ── 시스템에 설치된 ChromeDriver 경로 지정 ──
-    chromedriver_path = which("chromedriver")
+    # ── ChromeDriver 경로 지정 ──
+    # 1. 먼저 현재 디렉토리(프로젝트 루트)에서 찾기
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local_chromedriver = os.path.join(project_root, "chromedriver.exe")
+
+    chromedriver_path = None
+    if os.path.isfile(local_chromedriver):
+        chromedriver_path = local_chromedriver
+    else:
+        # 2. 확장자 없이도 시도 (Linux/Mac)
+        local_chromedriver_no_ext = os.path.join(project_root, "chromedriver")
+        if os.path.isfile(local_chromedriver_no_ext):
+            chromedriver_path = local_chromedriver_no_ext
+        else:
+            # 3. 시스템 PATH에서 찾기
+            chromedriver_path = which("chromedriver")
+
     if not chromedriver_path:
         result["comment"] = (
             "Chromedriver를 찾을 수 없습니다. "
-            "`sudo apt install chromium-chromedriver`를 통해 설치해주세요."
+            "프로젝트 루트에 chromedriver.exe를 배치하거나 시스템 PATH에 설치해주세요."
         )
         return result
 
