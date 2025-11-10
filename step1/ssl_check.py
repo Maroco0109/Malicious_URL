@@ -10,7 +10,7 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 
 
-def get_certificate_info(url: str, timeout: float = 3.0) -> dict:
+def get_certificate_info(url: str, timeout: float = 3.0, verify_cert: bool = True) -> dict:
     """
     HTTPS URL에 대해 SSL 핸드셰이크로부터 인증서를 가져온 뒤,
     cryptography 라이브러리로 파싱하여 issuer, subject, 유효기간, SAN 등을 반환합니다.
@@ -24,10 +24,18 @@ def get_certificate_info(url: str, timeout: float = 3.0) -> dict:
     if parsed.scheme.lower() != "https":
         return {"error": "HTTPS 스킴이 아닌 URL에서는 SSL 정보를 가져올 수 없습니다."}
 
-    # 기본 컨텍스트 생성 (CA 검증은 생략)
+    # SSL 컨텍스트 생성
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
+
+    if not verify_cert:
+        # ⚠️ WARNING: 인증서 검증을 비활성화하면 MITM 공격에 취약해집니다
+        # 악성 사이트 분석 목적으로만 사용하고, 신뢰할 수 없는 네트워크에서는 사용하지 마세요
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    else:
+        # 프로덕션 환경에서는 인증서 검증 활성화 권장
+        ctx.check_hostname = True
+        ctx.verify_mode = ssl.CERT_REQUIRED
 
     try:
         # 소켓 연결 후, binary_form=True로 인증서(DER) 가져오기
@@ -50,9 +58,9 @@ def get_certificate_info(url: str, timeout: float = 3.0) -> dict:
     issuer = cert.issuer.rfc4514_string()  # 예: "C=US,O=Google Trust Services,CN=WR2"
     # subject 추출
     subject = cert.subject.rfc4514_string()  # 예: "CN=*.google.com"
-    # 유효기간 추출
-    not_before = cert.not_valid_before.isoformat()
-    not_after = cert.not_valid_after.isoformat()
+    # 유효기간 추출 (UTC 기준 사용 - 권장)
+    not_before = cert.not_valid_before_utc.isoformat()
+    not_after = cert.not_valid_after_utc.isoformat()
 
     # SAN(DNS) 추출
     try:
@@ -75,6 +83,10 @@ def get_certificate_info(url: str, timeout: float = 3.0) -> dict:
                     break
 
     # 파싱 결과 반환
+    comment = "cryptography를 활용해 issuer, subject, 유효기간, SAN, 도메인 일치 여부를 반환"
+    if not verify_cert:
+        comment += " [⚠️ 경고: 인증서 검증 비활성화됨 - MITM 공격 가능]"
+
     return {
         "hostname": hostname,
         "issuer": issuer,
@@ -83,5 +95,6 @@ def get_certificate_info(url: str, timeout: float = 3.0) -> dict:
         "not_after": not_after,
         "domain_match": domain_match,
         "san_list": san_list,
-        "comment": "cryptography를 활용해 issuer, subject, 유효기간, SAN, 도메인 일치 여부를 반환"
+        "cert_verified": verify_cert,
+        "comment": comment
     }

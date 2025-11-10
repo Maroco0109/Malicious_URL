@@ -3,6 +3,14 @@ import json
 import sys
 import openai
 from dotenv import load_dotenv
+from pathlib import Path
+
+# Security 모듈 임포트
+from utils.security import (
+    validate_openai_api_key,
+    sanitize_error_message,
+    PathTraversalError
+)
 
 def main():
     load_dotenv()
@@ -12,11 +20,43 @@ def main():
 
     json_path = sys.argv[1]
 
+    # 경로 보안 검증
+    try:
+        # 절대 경로로 변환하여 검증
+        json_path_obj = Path(json_path).resolve()
+
+        # 파일이 존재하는지 확인
+        if not json_path_obj.exists():
+            print(f"[!] 파일을 찾을 수 없습니다: {json_path}")
+            sys.exit(1)
+
+        # 파일이 실제 파일인지 확인 (디렉토리가 아닌)
+        if not json_path_obj.is_file():
+            print(f"[!] 지정된 경로가 파일이 아닙니다: {json_path}")
+            sys.exit(1)
+
+        # JSON 파일 확장자 확인
+        if json_path_obj.suffix.lower() != '.json':
+            print("[!] JSON 파일만 처리할 수 있습니다 (.json 확장자 필요)")
+            sys.exit(1)
+
+    except Exception as e:
+        print(f"[!] 경로 검증 중 오류: {sanitize_error_message(e)}")
+        sys.exit(1)
+
     # 1) 환경 변수에서 API 키 로드
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         print("[!] 환경 변수 OPENAI_API_KEY가 설정되어 있지 않습니다.")
         sys.exit(1)
+
+    # API 키 형식 검증
+    try:
+        validate_openai_api_key(api_key)
+    except ValueError as e:
+        print(f"[!] {e}")
+        sys.exit(1)
+
     openai.api_key = api_key
 
     # 2) JSON 파일 로드
@@ -66,22 +106,22 @@ def main():
     }
 
     # 출력 파일명 생성 (입력 파일과 같은 디렉토리에 저장)
-    dir_name = os.path.dirname(json_path)
-    base_name = os.path.basename(json_path).rsplit('.', 1)[0]
-    output_filename = f"{base_name}_llm_result.json"
-
-    # 디렉토리가 있으면 그 안에 저장, 없으면 현재 디렉토리에 저장
-    if dir_name:
-        output_path = os.path.join(dir_name, output_filename)
-    else:
-        output_path = output_filename
-
     try:
+        # 입력 파일의 디렉토리와 파일명 추출
+        input_dir = json_path_obj.parent
+        base_name = json_path_obj.stem  # 확장자 제외한 파일명
+        output_filename = f"{base_name}_llm_result.json"
+
+        # 출력 경로 생성
+        output_path = input_dir / output_filename
+
+        # 파일 저장
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(output_data, f, ensure_ascii=False, indent=2)
         print(f"\n[*] LLM 결과가 JSON으로 저장되었습니다: {output_path}")
+
     except Exception as e:
-        print(f"\n[!] JSON 저장 중 오류: {e}")
+        print(f"\n[!] JSON 저장 중 오류: {sanitize_error_message(e)}")
 
 
 if __name__ == "__main__":

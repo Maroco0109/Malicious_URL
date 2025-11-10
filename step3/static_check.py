@@ -5,24 +5,72 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import urlparse
 
+# Security 모듈 임포트
+from utils.security import (
+    validate_url,
+    rate_limit,
+    sanitize_error_message,
+    clamp_value,
+    SSRFError
+)
 
-def fetch_html(url: str, timeout: float = 10.0) -> str:
+
+@rate_limit(calls=30, period=60)  # 분당 30회 제한
+def fetch_html(url: str, timeout: float = 10.0, allow_private_ips: bool = False) -> tuple:
     """
     requests를 이용해 주어진 URL의 HTML을 가져옴.
-    실패 시 빈 문자열("") 반환.
+
+    Args:
+        url: 가져올 URL
+        timeout: 타임아웃 (초)
+        allow_private_ips: 내부 IP 접근 허용 여부
+
+    Returns:
+        tuple: (html_content, error_message)
+               성공 시 (html, None), 실패 시 ("", error_msg)
     """
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-    }
+    # Timeout 제한 (1-30초)
+    timeout = clamp_value(timeout, 1.0, 30.0)
+
+    # SSRF 방지 - URL 검증
     try:
-        resp = requests.get(url, headers=headers, timeout=timeout)
+        validate_url(url, allow_private_ips=allow_private_ips)
+    except SSRFError as e:
+        return "", f"SSRF 차단: {e}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MaliciousURLDetector/1.0"
+    }
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
         resp.raise_for_status()
+
+        # Content-Type 검증
+        content_type = resp.headers.get('Content-Type', '').lower()
+        if 'text/html' not in content_type and 'text/plain' not in content_type:
+            return "", f"지원하지 않는 Content-Type: {content_type}"
+
+        # 응답 크기 제한 (10MB)
+        if len(resp.content) > 10 * 1024 * 1024:
+            return "", "응답 크기가 너무 큽니다 (>10MB)"
+
         # 텍스트 인코딩이 설정되어 있지 않으면 resp.apparent_encoding 사용
         if resp.encoding is None:
             resp.encoding = resp.apparent_encoding
-        return resp.text
+
+        return resp.text, None
+
+    except requests.exceptions.Timeout:
+        return "", "요청 시간 초과"
+    except requests.exceptions.SSLError:
+        return "", "SSL 인증서 오류"
+    except requests.exceptions.ConnectionError:
+        return "", "연결 실패"
+    except requests.exceptions.HTTPError as e:
+        return "", f"HTTP 오류: {e.response.status_code}"
     except Exception as e:
-        return ""
+        return "", sanitize_error_message(e)
 
 
 def check_static_threat(url: str) -> dict:
@@ -53,9 +101,9 @@ def check_static_threat(url: str) -> dict:
         "comment": ""
     }
 
-    html = fetch_html(url)
-    if not html:
-        result["comment"] = "HTML을 가져오지 못함(요청 실패 또는 빈 응답)"
+    html, error = fetch_html(url)
+    if error or not html:
+        result["comment"] = f"HTML을 가져오지 못함: {error or '빈 응답'}"
         return result
 
     result["html_fetched"] = True
