@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from urllib.parse import urlparse
 
 # Step1 모듈 임포트
@@ -171,9 +172,17 @@ def main():
     # 7) --export-json 옵션이 있으면 JSON으로 저장
     if args.export_json:
         try:
-            with open(args.export_json, "w", encoding="utf-8") as f:
+            # url_examine 디렉토리 생성
+            output_dir = "url_examine"
+            os.makedirs(output_dir, exist_ok=True)
+
+            # 파일명만 추출 (경로가 포함되어 있을 경우 대비)
+            filename = os.path.basename(args.export_json)
+            output_path = os.path.join(output_dir, filename)
+
+            with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(all_results, f, ensure_ascii=False, indent=2)
-            print(f"[*] 모든 결과를 JSON으로 저장했습니다: {args.export_json}")
+            print(f"[*] 모든 결과를 JSON으로 저장했습니다: {output_path}")
         except Exception as e:
             print(f"[!] JSON 저장 중 오류 발생: {e}")
 

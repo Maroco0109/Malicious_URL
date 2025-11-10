@@ -2,8 +2,10 @@ import os
 import json
 import sys
 import openai
+from dotenv import load_dotenv
 
 def main():
+    load_dotenv()
     if len(sys.argv) != 2:
         print("사용법: python call_llm_from_json.py <result.json 경로>")
         sys.exit(1)
@@ -39,7 +41,7 @@ def main():
     # 4) OpenAI Chat Completions 호출 (openai>=1.0.0 방식)
     try:
         response = openai.chat.completions.create(
-            model="gpt-3.5-turbo-16k",
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are a cybersecurity expert."},
                 {"role": "user",   "content": prompt}
@@ -52,8 +54,34 @@ def main():
         sys.exit(1)
 
     # 5) 결과 출력
-    content = response.choices[0].message["content"]
+    content = response.choices[0].message.content
     print(content)
+
+    # 6) JSON 파일로 저장
+    output_data = {
+        "url": features.get("url", "unknown"),
+        "llm_model": "gpt-3.5-turbo",
+        "llm_response": content,
+        "original_features": features
+    }
+
+    # 출력 파일명 생성 (입력 파일과 같은 디렉토리에 저장)
+    dir_name = os.path.dirname(json_path)
+    base_name = os.path.basename(json_path).rsplit('.', 1)[0]
+    output_filename = f"{base_name}_llm_result.json"
+
+    # 디렉토리가 있으면 그 안에 저장, 없으면 현재 디렉토리에 저장
+    if dir_name:
+        output_path = os.path.join(dir_name, output_filename)
+    else:
+        output_path = output_filename
+
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2)
+        print(f"\n[*] LLM 결과가 JSON으로 저장되었습니다: {output_path}")
+    except Exception as e:
+        print(f"\n[!] JSON 저장 중 오류: {e}")
 
 
 if __name__ == "__main__":
