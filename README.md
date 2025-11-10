@@ -338,19 +338,7 @@ pip install -r requirements.txt
 2. URL 전처리 과정 실행
 
 ```bash
-python main.py \
---url "{URL}" \
---idn \
---typo --typo-dataset {whitelist file} \
---ssl \
---scheme \
---whois \
---dns \
---urlinfo \
---static \
---dynamic \
---export-json {result file}
-
+python main.py --url "{URL}" --idn --typo --typo-dataset tranco --ssl --scheme --whois --dns --urlinfo --static --dynamic --export-json
 ```
 
 3. LLM API Call
@@ -363,3 +351,112 @@ export OPENAI_API_KEY="sk-{your api key}"
 ```bash
 python call_llm_from_json.py {result file}
 ```
+
+---
+
+## 사용 방법 (Korean Usage Guide)
+
+### 1. 환경 설정
+
+먼저 필요한 패키지를 설치합니다:
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. URL 분석 실행
+
+악성 URL을 분석하려면 다음 명령어를 사용합니다:
+
+```bash
+python main.py --url "{분석할 URL}" --idn --typo --typo-dataset tranco --ssl --scheme --whois --dns --urlinfo --static --dynamic --export-json
+```
+
+**옵션 설명:**
+- `--url` 또는 `-u`: 분석할 대상 URL (필수)
+- `--idn`: IDN(국제화 도메인 이름) 검사 수행
+- `--typo`: 타이포스쿼팅 검사 수행
+- `--typo-dataset tranco`: Tranco 상위 도메인 리스트 사용 (data/tranco_2NW29.csv)
+- `--typo-path`: 사용자 지정 화이트리스트 파일 경로
+- `--ssl`: SSL/TLS 인증서 검사
+- `--scheme`: URL 스킴 및 포트 검사
+- `--whois`: WHOIS 도메인 정보 조회
+- `--dns`: DNS 레코드 조회
+- `--urlinfo`: URL 구조 분석
+- `--static`: 정적 HTML/JS 분석
+- `--dynamic`: 동적 브라우저 분석 (헤드리스 Chrome 필요)
+- `--export-json`: 결과를 JSON 파일로 저장 (도메인 이름 기반 자동 생성)
+
+### 3. 실제 사용 예시
+
+악성 사이트 분석 예시:
+
+```bash
+python main.py --url "http://www.824555.com/app/member/SportOption.php?uid=guest&langx=gb" --idn --typo --typo-dataset tranco --ssl --scheme --whois --dns --urlinfo --static --dynamic --export-json
+```
+
+위 명령어는 자동으로 `url_examine/824555_com_20250110_123456_results.json` 형식의 파일을 생성합니다.
+
+피싱 의심 사이트 분석 예시 (Google Docs 위장):
+
+```bash
+python main.py --url "https://docs.google.com/spreadsheet/viewform?formkey=dGg2Z1lCUHlSdjllTVNRUW50TFIzSkE6MQ" --idn --typo --typo-dataset tranco --ssl --scheme --whois --dns --urlinfo --static --dynamic --export-json
+```
+
+위 명령어는 자동으로 `url_examine/docs_google_com_20250110_123456_results.json` 형식의 파일을 생성합니다.
+
+정상 사이트 분석 예시:
+
+```bash
+python main.py --url "https://www.google.com" --idn --typo --typo-dataset tranco --ssl --scheme --whois --dns --urlinfo --static --dynamic --export-json
+```
+
+위 명령어는 자동으로 `url_examine/google_com_20250110_123456_results.json` 형식의 파일을 생성합니다.
+
+### 4. LLM 분석 실행
+
+OpenAI API 키를 설정합니다:
+
+```bash
+# Windows (PowerShell)
+$env:OPENAI_API_KEY="sk-{your api key}"
+
+# Windows (CMD)
+set OPENAI_API_KEY=sk-{your api key}
+
+# Linux/Mac
+export OPENAI_API_KEY="sk-{your api key}"
+```
+
+생성된 JSON 파일을 LLM에 전달하여 최종 위험도 평가:
+
+```bash
+python call_llm_from_json.py url_examine/824555_com_20250110_123456_results.json
+```
+
+**참고**: 실제 파일명은 분석 시각에 따라 타임스탬프가 달라집니다. `url_examine` 폴더에서 가장 최근 파일을 확인하세요.
+
+PowerShell에서 가장 최근 파일을 자동으로 찾는 방법:
+
+```powershell
+python call_llm_from_json.py (Get-ChildItem url_examine\*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+```
+
+### 5. 출력 결과
+
+- 콘솔에 각 검사 단계별 결과가 출력됩니다
+- `url_examine/{도메인명}_{타임스탬프}_results.json` 형식으로 파일이 저장됩니다
+  - 예: `url_examine/824555_com_20250110_123456_results.json`
+  - 예: `url_examine/docs_google_com_20250110_123456_results.json`
+- LLM 분석 시 0-100 사이의 위험도 점수와 상세한 근거가 제공됩니다
+
+**파일명 형식의 장점**:
+- **충돌 방지**: 같은 도메인을 여러 번 분석해도 타임스탬프로 구분
+- **서브도메인 구분**: `docs.google.com`과 `mail.google.com`을 별도로 저장
+- **추적 용이**: 분석 시각을 파일명에서 바로 확인 가능
+
+### 주의사항
+
+- `--dynamic` 옵션 사용 시 `chromium-browser`와 `chromedriver`가 설치되어 있어야 합니다
+- 타이포스쿼팅 검사를 위해서는 `data/tranco_2NW29.csv` 파일이 필요합니다
+- 모든 분석 대상 URL은 잠재적으로 위험할 수 있으므로 주의하세요
