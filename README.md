@@ -335,6 +335,8 @@
 pip install -r requirements.txt
 ```
 
+> 타이포스쿼팅 모듈은 등록 도메인을 정규화하기 위해 `publicsuffix2`를 사용하며 멀티 레이블 TLD에서도 Tranco 후보만 비교합니다.
+
 2. URL 전처리 과정 실행
 
 ```bash
@@ -375,7 +377,7 @@ python main.py --url "{분석할 URL}" --idn --typo --typo-dataset tranco --ssl 
 **옵션 설명:**
 - `--url` 또는 `-u`: 분석할 대상 URL (필수)
 - `--idn`: IDN(국제화 도메인 이름) 검사 수행
-- `--typo`: 타이포스쿼팅 검사 수행
+- `--typo`: 타이포스쿼팅 검사 수행 (`publicsuffix2`로 등록 도메인을 정규화하고 길이 기반 후보만 비교)
 - `--typo-dataset tranco`: Tranco 상위 도메인 리스트 사용 (data/tranco_2NW29.csv)
 - `--typo-path`: 사용자 지정 화이트리스트 파일 경로
 - `--ssl`: SSL/TLS 인증서 검사
