@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 # Step1 모듈 임포트
 from step1.idn_check import check_idn
-from step1.typosquat_check import check_typosquat
+from step1.typosquat_check import build_whitelist_index, check_typosquat
 from step1.ssl_check import get_certificate_info
 from step1.scheme_check import check_scheme_and_port
 from utils.load_whitelist import load_whitelist_from_tranco, load_whitelist_from_txt
@@ -121,7 +121,8 @@ def main():
             print("타이포스쿼팅 검사를 위해 --typo-dataset 또는 --typo-path를 지정해주세요.")
             return
 
-        res_typo = check_typosquat(domain_only, whitelist)
+        whitelist_index = build_whitelist_index(whitelist)
+        res_typo = check_typosquat(domain_only, whitelist_index=whitelist_index)
         for k, v in res_typo.items():
             print(f"{k}: {v}")
         print()

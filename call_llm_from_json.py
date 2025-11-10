@@ -12,6 +12,49 @@ from utils.security import (
     PathTraversalError
 )
 
+
+def assess_risk(features: dict) -> str:
+    """
+    간단한 규칙 기반 점수로 위험 수준을 추정합니다.
+    """
+    score = 0.0
+    reasons = []
+
+    typo = features.get("typosquat_features") or {}
+    if typo.get("suspected"):
+        score += 0.35
+        reasons.append("타이포스쿼팅 유사 도메인 발견")
+
+    ssl = features.get("ssl_features") or {}
+    if ssl.get("issues"):
+        score += 0.15
+        reasons.append("SSL/TLS 인증서 문제")
+
+    dynamic = features.get("dynamic_js_features") or {}
+    if dynamic.get("popup_attempt"):
+        score += 0.1
+        reasons.append("팝업 생성 시도")
+    if dynamic.get("download_attempt"):
+        score += 0.1
+        reasons.append("다운로드 시도")
+    if dynamic.get("external_domains_contacted"):
+        score += 0.1
+        reasons.append("외부 도메인 요청 감지")
+
+    static = features.get("static_html_features") or {}
+    if static.get("num_eval", 0) > 0:
+        score += 0.05
+        reasons.append("eval() 사용")
+
+    level = "낮음"
+    if score >= 0.6:
+        level = "높음"
+    elif score >= 0.3:
+        level = "중간"
+
+    reason_text = "; ".join(reasons) if reasons else "명확한 위험 신호 없음"
+    return f"위험 수준: {level} (점수: {score:.2f}) — {reason_text}"
+
 def main():
     load_dotenv()
     if len(sys.argv) != 2:
@@ -96,6 +139,12 @@ def main():
     # 5) 결과 출력
     content = response.choices[0].message.content
     print(content)
+
+    # 리스크 요약 추가 출력
+    try:
+        print("\n" + assess_risk(features))
+    except Exception:
+        print("\n위험 수준을 계산하는 중 오류가 발생했습니다.")
 
     # 6) JSON 파일로 저장
     output_data = {

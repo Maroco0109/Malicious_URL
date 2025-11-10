@@ -1,11 +1,14 @@
-import difflib
+from collections import defaultdict
+from typing import Dict, Optional
 from urllib.parse import urlparse
+
+from publicsuffix2 import get_sld
 
 
 def levenshtein_distance(a: str, b: str) -> int:
     """
-    순수 파이썬으로 두 문자열의 Levenshtein 거리 계산
-    (시간 복잡도가 O(N*M)임에 유의)
+    두 문자열 사이의 Levenshtein 거리를 계산합니다.
+    시간 복잡도 O(N*M)인 표준 동적 계획법 구현입니다.
     """
     if a == b:
         return 0
@@ -20,82 +23,120 @@ def levenshtein_distance(a: str, b: str) -> int:
         for j, cb in enumerate(b, start=1):
             cost = 0 if ca == cb else 1
             curr[j] = min(
-                prev_row[j] + 1,       # 삭제
-                curr[j - 1] + 1,       # 삽입
-                prev_row[j - 1] + cost # 교체
+                prev_row[j] + 1,
+                curr[j - 1] + 1,
+                prev_row[j - 1] + cost,
             )
         prev_row = curr
     return prev_row[-1]
 
 
-def extract_domain_without_www(hostname: str) -> str:
+def _extract_registered_domain(hostname: str) -> Optional[str]:
     """
-    www. 접두사가 있으면 제거하고,
-    서브도메인을 제외하고 최상위 도메인+TLD만 리턴.
-    ex) mail.google.com → google.com
+    Public suffix 정보를 활용해 최상위 등록 도메인을 추출합니다.
+    mail.google.co.kr --> google.co.kr
     """
-    # www. 제거
-    if hostname.startswith("www."):
-        hostname = hostname[4:]
-    parts = hostname.split(".")
-    if len(parts) <= 2:
-        return hostname
-    # 예: mail.google.co.kr → 뒤에서 두 개만 사용하여 co.kr
-    return ".".join(parts[-2:])
-
-
-def check_typosquat(url_or_domain: str, whitelist: list, max_distance: int = 2) -> dict:
-    """
-    URL 또는 도메인 문자열을 입력받아, 화이트리스트(정상 도메인 리스트)와 편집거리를 계산합니다.
-    만약 “편집거리 == 0” (정확히 자기 자신과 일치) 이면 suspected=False로 처리하고,
-    그 외에 “편집거리 ≤ max_distance”면 suspected=True로 리턴합니다.
-    """
-    # 1) urlparse 로 파싱해서 hostname 시도
-    parsed = urlparse(url_or_domain)
-    hostname = parsed.hostname
-
-    # 2) parsed.hostname이 None이면, 인자로 넘어온 문자열 자체가 도메인일 수 있음
     if not hostname:
-        hostname = url_or_domain
+        return None
+    sld = get_sld(hostname)
+    if sld:
+        return sld.lower()
+    return hostname.lower()
 
-    domain = extract_domain_without_www(hostname.lower())
-    results = []
 
-    for legit in whitelist:
-        dist = levenshtein_distance(domain, legit.lower())
-        if dist <= max_distance:
-            results.append((legit, dist))
+def build_whitelist_index(whitelist: list[str]) -> Dict[int, list]:
+    """
+    화이트리스트를 도메인 길이 기준으로 버킷화해 후보군을 제한합니다.
+    """
+    buckets: Dict[int, list] = defaultdict(list)
+    for entry in whitelist:
+        normalized = entry.strip().lower()
+        if not normalized:
+            continue
+        buckets[len(normalized)].append(normalized)
+    return buckets
 
-    # 편집거리가 작은 순으로 정렬
-    results.sort(key=lambda x: x[1])
 
-    # 화이트리스트 내에 편집거리 ≤ max_distance인 대상이 없음
-    if len(results) == 0:
+def _collect_candidate_domains(domain: str, index: Dict[int, list], max_distance: int) -> list[str]:
+    candidates = []
+    target_len = len(domain)
+    min_len = max(1, target_len - max_distance)
+    max_len = target_len + max_distance
+    for length in range(min_len, max_len + 1):
+        candidates.extend(index.get(length, []))
+    return candidates
+
+
+def check_typosquat(
+    url_or_domain: str,
+    whitelist: Optional[list[str]] = None,
+    whitelist_index: Optional[Dict[int, list]] = None,
+    max_distance: int = 2,
+) -> dict:
+    """
+    입력 URL 또는 도메인에서 등록 도메인을 추출하고
+    편집 거리 후보군만 평가해 타이포스쿼팅 여부를 판단합니다.
+    """
+    parsed = urlparse(url_or_domain)
+    hostname = parsed.hostname or url_or_domain
+    if not hostname:
+        return {
+            "domain": None,
+            "suspected": False,
+            "closest": None,
+            "distance": None,
+            "comment": "도메인 정보를 추출하지 못했습니다.",
+        }
+
+    domain = _extract_registered_domain(hostname)
+    if not domain:
+        domain = hostname.lower()
+
+    if whitelist_index is None:
+        if not whitelist:
+            return {
+                "domain": domain,
+                "suspected": False,
+                "closest": None,
+                "distance": None,
+                "comment": "화이트리스트를 제공해 주세요.",
+            }
+        whitelist_index = build_whitelist_index(whitelist)
+
+    candidates = _collect_candidate_domains(domain, whitelist_index, max_distance)
+    closest_domain = None
+    closest_distance = max_distance + 1
+
+    for candidate in candidates:
+        dist = levenshtein_distance(domain, candidate)
+        if dist < closest_distance:
+            closest_distance = dist
+            closest_domain = candidate
+            if dist == 0:
+                break
+
+    if not closest_domain or closest_distance > max_distance:
         return {
             "domain": domain,
             "suspected": False,
             "closest": None,
             "distance": None,
-            "comment": f"화이트리스트 도메인과 편집거리 ≤ {max_distance}인 대상이 없습니다."
+            "comment": f"화이트리스트 도메인과 편집 거리 {max_distance} 이내에 해당하지 않습니다.",
         }
 
-    closest_domain, closest_dist = results[0]
-
-    # 편집거리 0인 경우 → 자기 자신과 일치, 오탐 방지를 위해 suspected=False
-    if closest_dist == 0:
+    if closest_distance == 0:
         return {
             "domain": domain,
             "suspected": False,
             "closest": closest_domain,
-            "distance": closest_dist,
-            "comment": "편집거리가 0이므로 화이트리스트에 정확히 일치하는 정상 도메인입니다."
+            "distance": closest_distance,
+            "comment": "정상 도메인으로 판단되어 타이포스쿼팅이 아닙니다.",
         }
 
-    # 그 외(거리 1 또는 2)인 경우에는 suspected=True
     return {
         "domain": domain,
         "suspected": True,
         "closest": closest_domain,
-        "distance": closest_dist,
-        "comment": f"가장 근접한 도메인: {closest_domain} (거리: {closest_dist})"
+        "distance": closest_distance,
+        "comment": f"가장 가까운 도메인: {closest_domain} (거리: {closest_distance})",
     }
